@@ -3,21 +3,23 @@
 const path = require('path')
 const fs = require('fs/promises')
 
-// if client is bundled this gets its output path
+// when client is bundled this gets its output path
 // regex works both on escaped and non-escaped code
 const prismaDirRegex = /\\?"?output\\?"?:\s*{(?:\\n?|\s)*\\?"?value\\?"?:(?:\\n?|\s)*\\?"(.*?)\\?",(?:\\n?|\s)*\\?"?fromEnvVar\\?"?/g
 
-function getPrismaDir(from) {
-  try {
-    return path.dirname(require.resolve('.prisma/client', { paths: [from] }))
-  } catch (e) {}
+async function getPrismaDir(from) {
+  // if we can find schema.prisma in the path, we are done
+  if (await fs.stat(path.join(from, 'schema.prisma')).catch(() => false)) {
+    return from
+  }
 
-  return from
+  // otherwise we need to find the generated prisma client
+  return path.dirname(require.resolve('.prisma/client', { paths: [from] }))
 }
 
 // get all required prisma files (schema + engine)
 async function getPrismaFiles(from) {
-  const prismaDir = getPrismaDir(from)
+  const prismaDir = await getPrismaDir(from)
   const filterRegex = /schema\.prisma|.*?engine.*?/
   const prismaFiles = await fs.readdir(prismaDir)
 
@@ -59,7 +61,7 @@ class PrismaPlugin {
 
             // update files to copy
             for (const match of sourceContents.matchAll(prismaDirRegex)) {
-              const prismaDir = getPrismaDir(match[1])
+              const prismaDir = await getPrismaDir(match[1])
               const prismaFiles = await getPrismaFiles(match[1])
 
               const fromDestFileMap = prismaFiles.map((f) => [

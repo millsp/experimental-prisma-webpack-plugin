@@ -5,6 +5,8 @@ Ensures that your Prisma files are copied
 ## Next.js
 
 ```js
+const { PrismaPlugin } = require('experimental-prisma-webpack-plugin')
+
 module.exports = {
   output: 'standalone',
   webpack: (config, { isServer }) => {
@@ -20,6 +22,8 @@ module.exports = {
 ## Webpack
 
 ```js
+const { PrismaPlugin } = require('experimental-prisma-webpack-plugin')
+
 module.exports = {
   plugins: [new PrismaPlugin()]
 }
