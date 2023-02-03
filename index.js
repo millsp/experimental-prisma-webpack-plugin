@@ -4,9 +4,10 @@ const path = require('path')
 const fs = require('fs/promises')
 
 // if client is bundled this gets its output path
-const prismaPathRegex = /"?output"?:\s*{\s*"?value"?:\s*"(.*?)",\s*"?fromEnvVar"?/g
+// regex works both on escaped and non-escaped code
+const prismaDirRegex = /\\?"?output\\?"?:\s*{(?:\\n?|\s)*\\?"?value\\?"?:(?:\\n?|\s)*\\?"(.*?)\\?",(?:\\n?|\s)*\\?"?fromEnvVar\\?"?/g
 
-function getPrismaPath(from) {
+function getPrismaDir(from) {
   try {
     return path.dirname(require.resolve('.prisma/client', { paths: [from] }))
   } catch (e) {}
@@ -16,9 +17,9 @@ function getPrismaPath(from) {
 
 // get all required prisma files (schema + engine)
 async function getPrismaFiles(from) {
-  const prismaPath = getPrismaPath(from)
+  const prismaDir = getPrismaDir(from)
   const filterRegex = /schema\.prisma|.*?engine.*?/
-  const prismaFiles = await fs.readdir(prismaPath)
+  const prismaFiles = await fs.readdir(prismaDir)
 
   return prismaFiles.filter(file => file.match(filterRegex))
 }
@@ -46,18 +47,24 @@ class PrismaPlugin {
         },
         async (assets) => {
           const jsAssetNames = Object.keys(assets).filter((k) => k.endsWith('.js'))
-
           const jsAsyncActions = jsAssetNames.map(async (assetName) => {
-            const oldSourceAsset = compilation.getAsset(assetName)
-            const oldSourceContents = oldSourceAsset.source.source() + ''
+            // prepare paths
+            const outputDir = compiler.outputPath
+            const assetPath = path.resolve(outputDir, assetName)
+            const assetDir = path.dirname(assetPath)
 
-            for (const match of oldSourceContents.matchAll(prismaPathRegex)) {
-              const prismaPath = getPrismaPath(match[1])
+            // get sources
+            const sourceAsset = compilation.getAsset(assetName)
+            const sourceContents = sourceAsset.source.source() + ''
+
+            // update files to copy
+            for (const match of sourceContents.matchAll(prismaDirRegex)) {
+              const prismaDir = getPrismaDir(match[1])
               const prismaFiles = await getPrismaFiles(match[1])
 
               const fromDestFileMap = prismaFiles.map((f) => [
-                path.join(prismaPath, f), // from
-                path.join(compiler.outputPath, f) // dest
+                path.join(prismaDir, f), // from
+                path.join(assetDir, f) // dest
               ])
 
               fromDestPrismaMap.push(...fromDestFileMap)
@@ -78,24 +85,23 @@ class PrismaPlugin {
         },
         async (assets) => {
           const nftAssetNames = Object.keys(assets).filter((k) => k.endsWith('.nft.json'))
-
           const nftAsyncActions = nftAssetNames.map(async (assetName) => {
-            // paths
-            const outputPath = compiler.outputPath
-            const assetPath = path.resolve(outputPath, assetName)
+            // prepare paths
+            const outputDir = compiler.outputPath
+            const assetPath = path.resolve(outputDir, assetName)
             const assetDir = path.dirname(assetPath)
 
-            // data
+            // get sources
             const oldSourceAsset = compilation.getAsset(assetName)
             const oldSourceContents = oldSourceAsset.source.source() + ''
             const ntfLoadedAsJson = JSON.parse(oldSourceContents)
 
-            // update
+            // update sources
             fromDestPrismaMap.forEach(([from, dest]) => {
               ntfLoadedAsJson.files.push(path.relative(assetDir, dest))
             })
 
-            // persist
+            // persist sources
             const newSourceString = JSON.stringify(ntfLoadedAsJson)
             const newRawSource = new sources.RawSource(newSourceString)
             compilation.updateAsset(assetName, newRawSource);
@@ -107,12 +113,16 @@ class PrismaPlugin {
     });
 
     // copy prisma files to output as the final step (for all users)
-    compiler.hooks.done.tapPromise(
-      'PrismaPlugin',
-      async () => {
-        await Promise.all(fromDestPrismaMap.map(([from, dest]) => fs.copyFile(from, dest)))
-      }
-    );
+    compiler.hooks.done.tapPromise('PrismaPlugin', async () => {
+      const asyncActions = fromDestPrismaMap.map(async ([from, dest]) => {
+        // only copy if file doesn't exist, necessary for watch mode
+        if (await fs.access(dest).catch(() => false) === false) {
+          return fs.copyFile(from, dest)
+        }
+      })
+
+      await Promise.all(asyncActions)
+    });
   }
 }
 
