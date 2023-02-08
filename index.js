@@ -38,7 +38,7 @@ class PrismaPlugin {
     const { webpack } = compiler;
     const { Compilation, sources } = webpack;
 
-    let schemaCount = 0
+    const assetDirSchemaPathsMap = {};
     const fromDestPrismaMap = [] // [from, dest][]
 
     // read bundles to find which prisma files to copy (for all users)
@@ -65,11 +65,23 @@ class PrismaPlugin {
               const prismaDir = await getPrismaDir(match[1])
               const prismaFiles = await getPrismaFiles(match[1])
 
-              const fromDestFileMap = prismaFiles.map((f) => {
+              const fromDestFileMap = prismaFiles.filter(
+                (f) =>
+                  !assetDirSchemaPathsMap[assetDir] ||
+                  !assetDirSchemaPathsMap[assetDir].schemaPaths.includes(
+                    path.join(prismaDir, f)
+                  )
+              ).map((f) => {
                 const from = path.join(prismaDir, f)
 
                 if (f === 'schema.prisma') {
-                  f += ++schemaCount // to be able to handle multiple schema.prisma
+                  if (!assetDirSchemaPathsMap[assetDir]) {
+                    assetDirSchemaPathsMap[assetDir] = { schemaPaths: [] }
+                  }
+                  const schemaCount = assetDirSchemaPathsMap[assetDir].schemaPaths.length
+                  f += schemaCount > 0 ? schemaCount : "" // to be able to handle multiple schema.prisma
+
+                  assetDirSchemaPathsMap[assetDir].schemaPaths.push(from)
 
                   // update "schema.prisma" to "schema.prisma{number}" in the sources
                   const newSourceString = oldSourceContents.replace(/schema\.prisma/g, f)
