@@ -28,3 +28,11 @@ module.exports = {
   plugins: [new PrismaPlugin()]
 }
 ```
+
+## Known issues
+
+### Multiple clients
+
+If you are using multiple clients, they must be of the same version.
+
+This is because the plugin assumes the engines will have same versions.
