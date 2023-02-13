@@ -1,6 +1,6 @@
 {
   "name": "experimental-prisma-webpack-plugin",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "Ensures that your Prisma files are copied",
   "main": "index.js",
   "scripts": {
